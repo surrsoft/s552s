@@ -182,7 +182,6 @@ function GroupCard({ group, query }: { group: TabGroup; query: string }) {
 export default function App() {
   const { openGroups, closedGroups, loading, clearClosed } = useTabs();
   const [query, setQuery] = useState("");
-  const [showClosed, setShowClosed] = useState(false);
 
   function filterGroups(groups: TabGroup[]) {
     const q = normalize(query);
@@ -218,7 +217,7 @@ export default function App() {
   const nothingFound =
     !loading &&
     filteredOpen.length === 0 &&
-    (!showClosed || filteredClosed.length === 0) &&
+    filteredClosed.length === 0 &&
     query !== "";
 
   return (
@@ -247,7 +246,7 @@ export default function App() {
       <main className="results">
         {loading && <p className="state-msg">Loading…</p>}
 
-        {!loading && openGroups.length === 0 && !showClosed && (
+        {!loading && openGroups.length === 0 && closedGroups.length === 0 && (
           <p className="state-msg">No tab groups found.<br />Create some in Chrome first!</p>
         )}
 
@@ -259,7 +258,7 @@ export default function App() {
           <GroupCard key={g.uid} group={g} query={query} />
         ))}
 
-        {showClosed && filteredClosed.length > 0 && (
+        {closedGroups.length > 0 && (
           <>
             <div className="section-divider">
               <span>Closed groups</span>
@@ -268,11 +267,10 @@ export default function App() {
             {filteredClosed.map((g) => (
               <GroupCard key={g.uid} group={g} query={query} />
             ))}
+            {filteredClosed.length === 0 && query && (
+              <p className="state-msg state-msg--compact">No closed groups matched.</p>
+            )}
           </>
-        )}
-
-        {showClosed && closedGroups.length === 0 && (
-          <p className="state-msg state-msg--compact">No closed groups recorded yet.</p>
         )}
       </main>
 
@@ -280,14 +278,11 @@ export default function App() {
         <span>
           {openGroups.length} group{openGroups.length !== 1 ? "s" : ""} · {totalTabs} tabs
         </span>
-        <button
-          type="button"
-          className={`toggle-closed-btn ${showClosed ? "toggle-closed-btn--active" : ""}`}
-          onClick={() => setShowClosed((v) => !v)}
-          title="Toggle closed groups"
-        >
-          Closed {closedGroups.length > 0 && `(${closedGroups.length})`}
-        </button>
+        {closedGroups.length > 0 && (
+          <span className="footer-closed-count">
+            {closedGroups.length} closed
+          </span>
+        )}
       </footer>
     </div>
   );
