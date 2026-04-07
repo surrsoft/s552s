@@ -225,12 +225,15 @@ mark {
   font-weight: 600;
 }
 
-/* ── Closed group card ────────────────────────── */
-.group-card--closed {
-  opacity: 0.75;
-}
-.group-card--closed .group-header:hover {
-  opacity: 1;
+/* ── Group badges ─────────────────────────────── */
+.opened-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--surface2);
+  padding: 1px 6px;
+  border-radius: 99px;
+  white-space: nowrap;
 }
 
 .closed-badge {
@@ -243,6 +246,7 @@ mark {
   white-space: nowrap;
 }
 
+/* ── Restore button ───────────────────────────── */
 .restore-btn-full {
   display: flex;
   align-items: center;
@@ -258,36 +262,6 @@ mark {
 }
 .restore-btn-full:hover { background: var(--surface2); border-color: var(--accent); }
 
-.tab-row--closed .tab-title { color: var(--muted); }
-.tab-row--closed:hover .tab-title { color: var(--text); }
-
-/* ── Section divider ──────────────────────────── */
-.section-divider {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 8px 4px;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.clear-closed-btn {
-  font-size: 11px;
-  color: var(--muted);
-  padding: 2px 6px;
-  border-radius: 4px;
-  transition: color 0.1s;
-}
-.clear-closed-btn:hover { color: var(--danger); }
-
-/* ── Compact state message ────────────────────── */
-.state-msg--compact {
-  padding-top: 12px;
-}
-
 /* ── Footer ───────────────────────────────────── */
 .app-footer {
   padding: 8px 16px;
@@ -297,11 +271,18 @@ mark {
   font-size: 11px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
 }
 
-.footer-closed-count {
-  color: var(--muted);
-  font-family: var(--mono);
+.app-footer > span:first-child { flex: 1; }
+
+.footer-closed-count { color: var(--muted); }
+
+.clear-closed-btn {
   font-size: 11px;
+  color: var(--muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.1s;
 }
+.clear-closed-btn:hover { color: var(--danger); }

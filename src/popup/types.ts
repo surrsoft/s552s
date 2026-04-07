@@ -18,4 +18,6 @@ export interface TabGroup {
   /** Tab snapshots — populated only for closed groups */
   savedTabs: SavedTab[];
   closedAt?: number;
+  /** Last activity timestamp (ms) — used for sorting */
+  lastSeenAt: number;
 }

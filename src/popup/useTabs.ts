@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { TabGroup, SavedTab } from "./types";
 
-// Maps Chrome's color names to CSS values
 const COLOR_MAP: Record<string, string> = {
   grey: "#5f6368",
   blue: "#1a73e8",
@@ -28,8 +27,9 @@ interface StoredClosedGroup {
 }
 
 export function useTabs() {
-  const [openGroups, setOpenGroups] = useState<TabGroup[]>([]);
-  const [closedGroups, setClosedGroups] = useState<TabGroup[]>([]);
+  const [groups, setGroups] = useState<TabGroup[]>([]);
+  const [openCount, setOpenCount] = useState(0);
+  const [closedCount, setClosedCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -37,8 +37,10 @@ export function useTabs() {
       const [rawGroups, allTabs, storageData] = await Promise.all([
         chrome.tabGroups.query({}),
         chrome.tabs.query({}),
-        chrome.storage.local.get("closedGroups"),
+        chrome.storage.local.get(["closedGroups", "groupLastSeen"]),
       ]);
+
+      const lastSeen: Record<string, number> = storageData.groupLastSeen ?? {};
 
       const live: TabGroup[] = rawGroups.map((g) => ({
         uid: String(g.id),
@@ -50,6 +52,7 @@ export function useTabs() {
         tabs: allTabs.filter((t) => t.groupId === g.id),
         closed: false,
         savedTabs: [],
+        lastSeenAt: lastSeen[String(g.id)] ?? Date.now(),
       }));
 
       const stored: StoredClosedGroup[] = storageData.closedGroups ?? [];
@@ -64,10 +67,14 @@ export function useTabs() {
         closed: true,
         savedTabs: g.tabs,
         closedAt: g.closedAt,
+        lastSeenAt: g.closedAt,
       }));
 
-      setOpenGroups(live);
-      setClosedGroups(closed);
+      const all = [...live, ...closed].sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+
+      setGroups(all);
+      setOpenCount(live.length);
+      setClosedCount(closed.length);
       setLoading(false);
     }
 
@@ -76,8 +83,9 @@ export function useTabs() {
 
   async function clearClosed() {
     await chrome.storage.local.set({ closedGroups: [] });
-    setClosedGroups([]);
+    setGroups((prev) => prev.filter((g) => !g.closed));
+    setClosedCount(0);
   }
 
-  return { openGroups, closedGroups, loading, clearClosed };
+  return { groups, openCount, closedCount, loading, clearClosed };
 }

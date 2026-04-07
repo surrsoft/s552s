@@ -37,6 +37,22 @@ const tabToGroup = new Map<number, number>();
 /** tabId → pending removal timer — gives tabGroups.onRemoved time to fire first */
 const pendingRemovals = new Map<number, ReturnType<typeof setTimeout>>();
 
+/** groupId → last activity timestamp (ms) */
+const groupLastSeen = new Map<number, number>();
+
+let saveLastSeenTimer: ReturnType<typeof setTimeout> | null = null;
+
+function touchGroup(groupId: number) {
+  if (groupId <= 0) return;
+  groupLastSeen.set(groupId, Date.now());
+  if (saveLastSeenTimer) clearTimeout(saveLastSeenTimer);
+  saveLastSeenTimer = setTimeout(async () => {
+    const obj: Record<string, number> = {};
+    for (const [k, v] of groupLastSeen) obj[k] = v;
+    await chrome.storage.local.set({ groupLastSeen: obj });
+  }, 1000);
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toSavedTab(t: chrome.tabs.Tab): SavedTab {
@@ -131,11 +147,19 @@ async function markGroupClosed(group: chrome.tabGroups.TabGroup) {
 async function init() {
   groupCache.clear();
   tabToGroup.clear();
+  groupLastSeen.clear();
 
-  const [allGroups, allTabs] = await Promise.all([
+  const [allGroups, allTabs, stored] = await Promise.all([
     chrome.tabGroups.query({}),
     chrome.tabs.query({}),
+    chrome.storage.local.get("groupLastSeen"),
   ]);
+
+  // Restore persisted lastSeen timestamps
+  const persisted: Record<string, number> = stored.groupLastSeen ?? {};
+  for (const [k, v] of Object.entries(persisted)) {
+    groupLastSeen.set(Number(k), v);
+  }
 
   for (const g of allGroups) {
     groupCache.set(g.id, {
@@ -143,6 +167,7 @@ async function init() {
       color: g.color,
       tabs: new Map(),
     });
+    if (!groupLastSeen.has(g.id)) touchGroup(g.id);
   }
   for (const t of allTabs) {
     if (t.id != null && t.groupId != null && t.groupId > 0) {
@@ -158,8 +183,8 @@ chrome.runtime.onInstalled.addListener(init);
 
 // ─── Tab listeners ────────────────────────────────────────────────────────────
 
-chrome.tabs.onCreated.addListener((tab) => setTab(tab));
-chrome.tabs.onUpdated.addListener((_id, _change, tab) => setTab(tab));
+chrome.tabs.onCreated.addListener((tab) => { setTab(tab); touchGroup(tab.groupId ?? -1); });
+chrome.tabs.onUpdated.addListener((_id, _change, tab) => { setTab(tab); touchGroup(tab.groupId ?? -1); });
 chrome.tabs.onRemoved.addListener((tabId, info) => removeTab(tabId, info.isWindowClosing));
 chrome.tabs.onAttached.addListener(async (tabId) => {
   const tab = await chrome.tabs.get(tabId);
@@ -173,6 +198,7 @@ chrome.tabGroups.onCreated.addListener((g) => {
   if (!groupCache.has(g.id)) {
     groupCache.set(g.id, { title: g.title ?? "(no name)", color: g.color, tabs: new Map() });
   }
+  touchGroup(g.id);
 });
 
 chrome.tabGroups.onUpdated.addListener((g) => {
@@ -183,6 +209,7 @@ chrome.tabGroups.onUpdated.addListener((g) => {
   } else {
     groupCache.set(g.id, { title: g.title ?? "(no name)", color: g.color, tabs: new Map() });
   }
+  touchGroup(g.id);
 });
 
 chrome.tabGroups.onRemoved.addListener((g) => markGroupClosed(g));

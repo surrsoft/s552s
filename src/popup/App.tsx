@@ -43,23 +43,14 @@ async function openSavedTab(url: string) {
   window.close();
 }
 
-/**
- * For closed groups with no saved tab URLs, try to find a matching session
- * in Chrome's recently-closed history (matched by timestamp proximity)
- * and restore it.
- */
 async function restoreFromSession(closedAt: number): Promise<boolean> {
   const sessions = await chrome.sessions.getRecentlyClosed({ maxResults: 25 });
   const best = sessions
     .map((s) => ({ s, diff: Math.abs(s.lastModified * 1000 - closedAt) }))
     .sort((a, b) => a.diff - b.diff)[0];
-
-  // Accept sessions closed within 60 seconds of the recorded timestamp
   if (!best || best.diff > 60_000) return false;
-
   const sessionId = best.s.window?.sessionId ?? best.s.tab?.sessionId;
   if (!sessionId) return false;
-
   await chrome.sessions.restore(sessionId);
   window.close();
   return true;
@@ -109,7 +100,7 @@ function ClosedTabRow({ tab, query }: { tab: SavedTab; query: string }) {
   return (
     <button
       type="button"
-      className="tab-row tab-row--closed"
+      className="tab-row"
       onClick={() => openSavedTab(tab.url)}
       title={tab.url}
     >
@@ -128,28 +119,31 @@ function GroupCard({ group, query }: { group: TabGroup; query: string }) {
   const [open, setOpen] = useState(true);
   const [sessionNotFound, setSessionNotFound] = useState(false);
 
-  if (group.closed) {
-    return (
-      <div className="group-card group-card--closed">
-        {/* --accent is a dynamic CSS custom property; inline style is required */}
-        <button
-          type="button"
-          className="group-header"
-          style={{ "--accent": color } as React.CSSProperties}
-          onClick={() => setOpen((o) => !o)}
-        >
-          <GroupDot color={group.color as string} />
-          <span className="group-name">{highlight(group.title, query)}</span>
-          <span className="group-count">{group.savedTabs.length}</span>
-          {group.closedAt && (
-            <span className="closed-badge">{timeAgo(group.closedAt)}</span>
-          )}
-          <span className={`chevron ${open ? "chevron--open" : ""}`}>›</span>
-        </button>
+  const tabCount = group.closed ? group.savedTabs.length : group.tabs.length;
 
-        {open && (
-          <div className="tab-list">
-            {group.savedTabs.length > 0 ? (
+  return (
+    <div className="group-card">
+      {/* --accent is a dynamic CSS custom property; inline style is required */}
+      <button
+        type="button"
+        className="group-header"
+        style={{ "--accent": color } as React.CSSProperties}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <GroupDot color={group.color as string} />
+        <span className="group-name">{highlight(group.title, query)}</span>
+        <span className="group-count">{tabCount}</span>
+        {!group.closed
+          ? <span className="opened-badge">opened</span>
+          : <span className="closed-badge">{timeAgo(group.closedAt!)}</span>
+        }
+        <span className={`chevron ${open ? "chevron--open" : ""}`}>›</span>
+      </button>
+
+      {open && (
+        <div className="tab-list">
+          {group.closed ? (
+            group.savedTabs.length > 0 ? (
               <>
                 <button
                   type="button"
@@ -180,35 +174,16 @@ function GroupCard({ group, query }: { group: TabGroup; query: string }) {
                   </p>
                 )}
               </>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="group-card">
-      {/* --accent is a dynamic CSS custom property; inline style is required */}
-      <button
-        type="button"
-        className="group-header"
-        style={{ "--accent": color } as React.CSSProperties}
-        onClick={() => setOpen((o) => !o)}
-      >
-        <GroupDot color={group.color as string} />
-        <span className="group-name">{highlight(group.title, query)}</span>
-        <span className="group-count">{group.tabs.length}</span>
-        <span className={`chevron ${open ? "chevron--open" : ""}`}>›</span>
-      </button>
-
-      {open && (
-        <div className="tab-list">
-          {group.tabs.map((tab) => (
-            <TabRow key={tab.id} tab={tab} query={query} />
-          ))}
-          {group.tabs.length === 0 && (
-            <p className="empty-tabs">No tabs in this group</p>
+            )
+          ) : (
+            <>
+              {group.tabs.map((tab) => (
+                <TabRow key={tab.id} tab={tab} query={query} />
+              ))}
+              {group.tabs.length === 0 && (
+                <p className="empty-tabs">No tabs in this group</p>
+              )}
+            </>
           )}
         </div>
       )}
@@ -219,10 +194,10 @@ function GroupCard({ group, query }: { group: TabGroup; query: string }) {
 // ─── App ────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const { openGroups, closedGroups, loading, clearClosed } = useTabs();
+  const { groups, openCount, closedCount, loading, clearClosed } = useTabs();
   const [query, setQuery] = useState("");
 
-  function filterGroups(groups: TabGroup[]) {
+  const filtered = useMemo(() => {
     const q = normalize(query);
     if (!q) return groups;
     return groups
@@ -230,34 +205,23 @@ export default function App() {
         const groupMatch = normalize(g.title).includes(q);
         if (g.closed) {
           const matchingTabs = g.savedTabs.filter(
-            (t) =>
-              normalize(t.title).includes(q) || normalize(t.url).includes(q)
+            (t) => normalize(t.title).includes(q) || normalize(t.url).includes(q)
           );
           if (groupMatch) return g;
           if (matchingTabs.length > 0) return { ...g, savedTabs: matchingTabs };
           return null;
         }
         const matchingTabs = g.tabs.filter(
-          (t) =>
-            normalize(t.title ?? "").includes(q) ||
-            normalize(t.url ?? "").includes(q)
+          (t) => normalize(t.title ?? "").includes(q) || normalize(t.url ?? "").includes(q)
         );
         if (groupMatch) return g;
         if (matchingTabs.length > 0) return { ...g, tabs: matchingTabs };
         return null;
       })
       .filter(Boolean) as TabGroup[];
-  }
+  }, [groups, query]);
 
-  const filteredOpen = useMemo(() => filterGroups(openGroups), [openGroups, query]);
-  const filteredClosed = useMemo(() => filterGroups(closedGroups), [closedGroups, query]);
-
-  const totalTabs = openGroups.reduce((n, g) => n + g.tabs.length, 0);
-  const nothingFound =
-    !loading &&
-    filteredOpen.length === 0 &&
-    filteredClosed.length === 0 &&
-    query !== "";
+  const totalTabs = groups.filter((g) => !g.closed).reduce((n, g) => n + g.tabs.length, 0);
 
   return (
     <div className="app">
@@ -285,42 +249,26 @@ export default function App() {
       <main className="results">
         {loading && <p className="state-msg">Loading…</p>}
 
-        {!loading && openGroups.length === 0 && closedGroups.length === 0 && (
+        {!loading && groups.length === 0 && (
           <p className="state-msg">No tab groups found.<br />Create some in Chrome first!</p>
         )}
 
-        {nothingFound && (
+        {!loading && filtered.length === 0 && query && (
           <p className="state-msg">Nothing matched "<strong>{query}</strong>"</p>
         )}
 
-        {filteredOpen.map((g) => (
+        {filtered.map((g) => (
           <GroupCard key={g.uid} group={g} query={query} />
         ))}
-
-        {closedGroups.length > 0 && (
-          <>
-            <div className="section-divider">
-              <span>Closed groups</span>
-              <button type="button" className="clear-closed-btn" onClick={clearClosed}>Clear all</button>
-            </div>
-            {filteredClosed.map((g) => (
-              <GroupCard key={g.uid} group={g} query={query} />
-            ))}
-            {filteredClosed.length === 0 && query && (
-              <p className="state-msg state-msg--compact">No closed groups matched.</p>
-            )}
-          </>
-        )}
       </main>
 
       <footer className="app-footer">
-        <span>
-          {openGroups.length} group{openGroups.length !== 1 ? "s" : ""} · {totalTabs} tabs
-        </span>
-        {closedGroups.length > 0 && (
-          <span className="footer-closed-count">
-            {closedGroups.length} closed
-          </span>
+        <span>{openCount} open · {totalTabs} tabs</span>
+        {closedCount > 0 && (
+          <>
+            <span className="footer-closed-count">{closedCount} closed</span>
+            <button type="button" className="clear-closed-btn" onClick={clearClosed}>Clear</button>
+          </>
         )}
       </footer>
     </div>
