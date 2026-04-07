@@ -43,6 +43,28 @@ async function openSavedTab(url: string) {
   window.close();
 }
 
+/**
+ * For closed groups with no saved tab URLs, try to find a matching session
+ * in Chrome's recently-closed history (matched by timestamp proximity)
+ * and restore it.
+ */
+async function restoreFromSession(closedAt: number): Promise<boolean> {
+  const sessions = await chrome.sessions.getRecentlyClosed({ maxResults: 25 });
+  const best = sessions
+    .map((s) => ({ s, diff: Math.abs(s.lastModified * 1000 - closedAt) }))
+    .sort((a, b) => a.diff - b.diff)[0];
+
+  // Accept sessions closed within 60 seconds of the recorded timestamp
+  if (!best || best.diff > 60_000) return false;
+
+  const sessionId = best.s.window?.sessionId ?? best.s.tab?.sessionId;
+  if (!sessionId) return false;
+
+  await chrome.sessions.restore(sessionId);
+  window.close();
+  return true;
+}
+
 async function restoreGroup(group: TabGroup) {
   if (group.savedTabs.length === 0) return;
   const tabIds: number[] = [];
@@ -104,6 +126,7 @@ function ClosedTabRow({ tab, query }: { tab: SavedTab; query: string }) {
 function GroupCard({ group, query }: { group: TabGroup; query: string }) {
   const color = useGroupColor(group.color as string);
   const [open, setOpen] = useState(true);
+  const [sessionNotFound, setSessionNotFound] = useState(false);
 
   if (group.closed) {
     return (
@@ -121,26 +144,42 @@ function GroupCard({ group, query }: { group: TabGroup; query: string }) {
           {group.closedAt && (
             <span className="closed-badge">{timeAgo(group.closedAt)}</span>
           )}
-          {group.savedTabs.length > 0 && (
-            <button
-              type="button"
-              className="restore-btn"
-              title="Restore group"
-              onClick={(e) => { e.stopPropagation(); restoreGroup(group); }}
-            >
-              ↩
-            </button>
-          )}
           <span className={`chevron ${open ? "chevron--open" : ""}`}>›</span>
         </button>
 
         {open && (
           <div className="tab-list">
-            {group.savedTabs.map((tab, i) => (
-              <ClosedTabRow key={i} tab={tab} query={query} />
-            ))}
-            {group.savedTabs.length === 0 && (
-              <p className="empty-tabs">No tab data saved</p>
+            {group.savedTabs.length > 0 ? (
+              <>
+                <button
+                  type="button"
+                  className="restore-btn-full"
+                  onClick={() => restoreGroup(group)}
+                >
+                  ↩ Restore group
+                </button>
+                {group.savedTabs.map((tab, i) => (
+                  <ClosedTabRow key={i} tab={tab} query={query} />
+                ))}
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="restore-btn-full"
+                  onClick={async () => {
+                    const ok = await restoreFromSession(group.closedAt ?? 0);
+                    if (!ok) setSessionNotFound(true);
+                  }}
+                >
+                  ↩ Restore from Chrome session history
+                </button>
+                {sessionNotFound && (
+                  <p className="empty-tabs">
+                    Session not found — too much time has passed. Use Ctrl+Shift+T in Chrome.
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}

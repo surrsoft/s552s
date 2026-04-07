@@ -243,15 +243,20 @@ mark {
   white-space: nowrap;
 }
 
-.restore-btn {
-  font-size: 13px;
-  color: var(--muted);
-  padding: 1px 4px;
-  border-radius: 4px;
-  transition: color 0.1s;
-  line-height: 1;
+.restore-btn-full {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  margin-bottom: 4px;
+  transition: background 0.1s, border-color 0.1s;
 }
-.restore-btn:hover { color: var(--accent); }
+.restore-btn-full:hover { background: var(--surface2); border-color: var(--accent); }
 
 .tab-row--closed .tab-title { color: var(--muted); }
 .tab-row--closed:hover .tab-title { color: var(--text); }

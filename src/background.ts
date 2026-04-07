@@ -34,6 +34,9 @@ const groupCache = new Map<number, GroupEntry>();
 /** tabId → groupId (reverse lookup for fast removal) */
 const tabToGroup = new Map<number, number>();
 
+/** tabId → pending removal timer — gives tabGroups.onRemoved time to fire first */
+const pendingRemovals = new Map<number, ReturnType<typeof setTimeout>>();
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toSavedTab(t: chrome.tabs.Tab): SavedTab {
@@ -66,20 +69,42 @@ function setTab(tab: chrome.tabs.Tab) {
 
 /**
  * Remove a tab from the cache.
- * When a window is closing, Chrome fires tabs.onRemoved with isWindowClosing=true
- * BEFORE it fires tabGroups.onRemoved, which would leave us with an empty cache.
- * We skip removal in that case so the group snapshot is still intact.
+ *
+ * Two tricky cases:
+ * 1. Window closing — Chrome fires tabs.onRemoved (isWindowClosing=true) for every
+ *    tab BEFORE firing tabGroups.onRemoved. We skip removal so the snapshot is intact.
+ * 2. Last tab manually closed — isWindowClosing=false, but tabGroups.onRemoved fires
+ *    almost immediately after. We defer the actual removal by 600 ms so that
+ *    markGroupClosed() still sees the tab data.
  */
 function removeTab(tabId: number, isWindowClosing: boolean) {
   if (isWindowClosing) return;
-  const groupId = tabToGroup.get(tabId);
-  if (groupId != null) {
-    groupCache.get(groupId)?.tabs.delete(tabId);
-    tabToGroup.delete(tabId);
-  }
+
+  // Cancel any previously scheduled removal for this tab
+  const existing = pendingRemovals.get(tabId);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(() => {
+    const groupId = tabToGroup.get(tabId);
+    if (groupId != null) {
+      groupCache.get(groupId)?.tabs.delete(tabId);
+      tabToGroup.delete(tabId);
+    }
+    pendingRemovals.delete(tabId);
+  }, 600);
+
+  pendingRemovals.set(tabId, timer);
 }
 
 async function markGroupClosed(group: chrome.tabGroups.TabGroup) {
+  // Cancel pending tab removals for this group so we capture all tabs
+  for (const [tabId, groupId] of tabToGroup) {
+    if (groupId === group.id) {
+      const timer = pendingRemovals.get(tabId);
+      if (timer) { clearTimeout(timer); pendingRemovals.delete(tabId); }
+    }
+  }
+
   const cached = groupCache.get(group.id);
   const tabs = cached ? Array.from(cached.tabs.values()) : [];
 
