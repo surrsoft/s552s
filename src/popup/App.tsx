@@ -88,11 +88,34 @@ async function restoreFromSession(group: TabGroup): Promise<boolean> {
     collapsed: false,
   });
   await chrome.tabs.update(tabIds[0], { active: true });
+  await removeFromClosedStorage(group.uid);
   window.close();
   return true;
 }
 
+async function removeFromClosedStorage(uid: string) {
+  const data = await chrome.storage.local.get("closedGroups");
+  const updated = (data.closedGroups ?? []).filter((g: { uid: string }) => g.uid !== uid);
+  await chrome.storage.local.set({ closedGroups: updated });
+}
+
 async function restoreGroup(group: TabGroup) {
+  // If the group is already open — just focus it
+  const openGroups = await chrome.tabGroups.query({});
+  const existing = openGroups.find(
+    (g) => g.title === group.title && g.color === group.color
+  );
+  if (existing) {
+    const tabs = await chrome.tabs.query({ groupId: existing.id });
+    if (tabs[0]?.id != null) {
+      await chrome.tabs.update(tabs[0].id, { active: true });
+      await chrome.windows.update(tabs[0].windowId!, { focused: true });
+    }
+    await removeFromClosedStorage(group.uid);
+    window.close();
+    return;
+  }
+
   if (group.savedTabs.length === 0) return;
   const tabIds: number[] = [];
   for (const saved of group.savedTabs) {
@@ -107,6 +130,7 @@ async function restoreGroup(group: TabGroup) {
     collapsed: false,
   });
   await chrome.tabs.update(tabIds[0], { active: true });
+  await removeFromClosedStorage(group.uid);
   window.close();
 }
 
