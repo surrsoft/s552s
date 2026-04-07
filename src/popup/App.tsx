@@ -43,15 +43,51 @@ async function openSavedTab(url: string) {
   window.close();
 }
 
-async function restoreFromSession(closedAt: number): Promise<boolean> {
+/**
+ * Restore a closed group with no saved URLs by finding the closest session
+ * in Chrome history and recreating the tabs manually (to avoid duplicates).
+ */
+async function restoreFromSession(group: TabGroup): Promise<boolean> {
+  const closedAt = group.closedAt ?? 0;
   const sessions = await chrome.sessions.getRecentlyClosed({ maxResults: 25 });
   const best = sessions
     .map((s) => ({ s, diff: Math.abs(s.lastModified * 1000 - closedAt) }))
     .sort((a, b) => a.diff - b.diff)[0];
   if (!best || best.diff > 60_000) return false;
-  const sessionId = best.s.window?.sessionId ?? best.s.tab?.sessionId;
-  if (!sessionId) return false;
-  await chrome.sessions.restore(sessionId);
+
+  // Extract tabs from the matched session
+  const sessionTabs: chrome.tabs.Tab[] =
+    best.s.window?.tabs ?? (best.s.tab ? [best.s.tab] : []);
+  if (sessionTabs.length === 0) return false;
+
+  // Build a map of already-open URLs to avoid duplicates
+  const openTabs = await chrome.tabs.query({});
+  const openUrlToId = new Map<string, number>(
+    openTabs.flatMap((t) => (t.url && t.id != null ? [[t.url, t.id]] : []))
+  );
+
+  const tabIds: number[] = [];
+  for (const t of sessionTabs) {
+    const url = t.url;
+    if (!url || url.startsWith("chrome://") || url.startsWith("chrome-extension://")) continue;
+    if (openUrlToId.has(url)) {
+      // Reuse the already-open tab instead of creating a duplicate
+      tabIds.push(openUrlToId.get(url)!);
+    } else {
+      const newTab = await chrome.tabs.create({ url, active: false });
+      if (newTab.id != null) tabIds.push(newTab.id);
+    }
+  }
+
+  if (tabIds.length === 0) return false;
+
+  const groupId = await chrome.tabs.group({ tabIds });
+  await chrome.tabGroups.update(groupId, {
+    title: group.title,
+    color: group.color as chrome.tabGroups.ColorEnum,
+    collapsed: false,
+  });
+  await chrome.tabs.update(tabIds[0], { active: true });
   window.close();
   return true;
 }
@@ -162,7 +198,7 @@ function GroupCard({ group, query }: { group: TabGroup; query: string }) {
                   type="button"
                   className="restore-btn-full"
                   onClick={async () => {
-                    const ok = await restoreFromSession(group.closedAt ?? 0);
+                    const ok = await restoreFromSession(group);
                     if (!ok) setSessionNotFound(true);
                   }}
                 >
