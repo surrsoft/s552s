@@ -225,6 +225,64 @@ mark {
   font-weight: 600;
 }
 
+/* ── Closed group card ────────────────────────── */
+.group-card--closed {
+  opacity: 0.75;
+}
+.group-card--closed .group-header:hover {
+  opacity: 1;
+}
+
+.closed-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface2);
+  padding: 1px 6px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+
+.restore-btn {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 1px 4px;
+  border-radius: 4px;
+  transition: color 0.1s;
+  line-height: 1;
+}
+.restore-btn:hover { color: var(--accent); }
+
+.tab-row--closed .tab-title { color: var(--muted); }
+.tab-row--closed:hover .tab-title { color: var(--text); }
+
+/* ── Section divider ──────────────────────────── */
+.section-divider {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 4px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.clear-closed-btn {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.1s;
+}
+.clear-closed-btn:hover { color: var(--danger); }
+
+/* ── Compact state message ────────────────────── */
+.state-msg--compact {
+  padding-top: 12px;
+}
+
 /* ── Footer ───────────────────────────────────── */
 .app-footer {
   padding: 8px 16px;
@@ -232,4 +290,19 @@ mark {
   color: var(--muted);
   font-family: var(--mono);
   font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
+
+.toggle-closed-btn {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--muted);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  transition: color 0.1s, border-color 0.1s;
+}
+.toggle-closed-btn:hover { color: var(--text); border-color: var(--border); }
+.toggle-closed-btn--active { color: var(--accent); border-color: var(--accent); }

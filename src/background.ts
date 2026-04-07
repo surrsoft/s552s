@@ -1,0 +1,163 @@
+/**
+ * Background service worker.
+ * Maintains an in-memory cache of groupId → tabs so that when a tab group is
+ * removed (e.g. the window closes) we still have the last-known tab URLs and
+ * can persist them to storage.local as a "closed group".
+ */
+
+interface SavedTab {
+  title: string;
+  url: string;
+  favIconUrl?: string;
+}
+
+interface ClosedGroup {
+  uid: string;
+  id: number;
+  title: string;
+  color: string;
+  tabs: SavedTab[];
+  closedAt: number;
+}
+
+interface GroupEntry {
+  title: string;
+  color: string;
+  tabs: Map<number, SavedTab>; // tabId → snapshot
+}
+
+// ─── In-memory state ──────────────────────────────────────────────────────────
+
+/** groupId → entry */
+const groupCache = new Map<number, GroupEntry>();
+
+/** tabId → groupId (reverse lookup for fast removal) */
+const tabToGroup = new Map<number, number>();
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function toSavedTab(t: chrome.tabs.Tab): SavedTab {
+  return {
+    title: t.title ?? t.url ?? "Untitled",
+    url: t.url ?? "",
+    favIconUrl: t.favIconUrl || undefined,
+  };
+}
+
+function setTab(tab: chrome.tabs.Tab) {
+  if (tab.id == null) return;
+  const newGroupId = tab.groupId ?? -1;
+  const oldGroupId = tabToGroup.get(tab.id);
+
+  // Move out of old group if groupId changed
+  if (oldGroupId != null && oldGroupId !== newGroupId) {
+    groupCache.get(oldGroupId)?.tabs.delete(tab.id);
+    if (newGroupId <= 0) tabToGroup.delete(tab.id);
+  }
+
+  if (newGroupId > 0) {
+    tabToGroup.set(tab.id, newGroupId);
+    if (!groupCache.has(newGroupId)) {
+      groupCache.set(newGroupId, { title: "(no name)", color: "grey", tabs: new Map() });
+    }
+    groupCache.get(newGroupId)!.tabs.set(tab.id, toSavedTab(tab));
+  }
+}
+
+/**
+ * Remove a tab from the cache.
+ * When a window is closing, Chrome fires tabs.onRemoved with isWindowClosing=true
+ * BEFORE it fires tabGroups.onRemoved, which would leave us with an empty cache.
+ * We skip removal in that case so the group snapshot is still intact.
+ */
+function removeTab(tabId: number, isWindowClosing: boolean) {
+  if (isWindowClosing) return;
+  const groupId = tabToGroup.get(tabId);
+  if (groupId != null) {
+    groupCache.get(groupId)?.tabs.delete(tabId);
+    tabToGroup.delete(tabId);
+  }
+}
+
+async function markGroupClosed(group: chrome.tabGroups.TabGroup) {
+  const cached = groupCache.get(group.id);
+  const tabs = cached ? Array.from(cached.tabs.values()) : [];
+
+  const entry: ClosedGroup = {
+    uid: `${Date.now()}_${group.id}`,
+    id: group.id,
+    title: group.title ?? "(no name)",
+    color: group.color,
+    tabs,
+    closedAt: Date.now(),
+  };
+
+  const data = await chrome.storage.local.get("closedGroups");
+  const existing: ClosedGroup[] = data.closedGroups ?? [];
+  await chrome.storage.local.set({
+    closedGroups: [entry, ...existing].slice(0, 200),
+  });
+
+  groupCache.delete(group.id);
+}
+
+// ─── Initialisation ───────────────────────────────────────────────────────────
+
+async function init() {
+  groupCache.clear();
+  tabToGroup.clear();
+
+  const [allGroups, allTabs] = await Promise.all([
+    chrome.tabGroups.query({}),
+    chrome.tabs.query({}),
+  ]);
+
+  for (const g of allGroups) {
+    groupCache.set(g.id, {
+      title: g.title ?? "(no name)",
+      color: g.color,
+      tabs: new Map(),
+    });
+  }
+  for (const t of allTabs) {
+    if (t.id != null && t.groupId != null && t.groupId > 0) {
+      tabToGroup.set(t.id, t.groupId);
+      groupCache.get(t.groupId)?.tabs.set(t.id, toSavedTab(t));
+    }
+  }
+}
+
+init();
+chrome.runtime.onStartup.addListener(init);
+chrome.runtime.onInstalled.addListener(init);
+
+// ─── Tab listeners ────────────────────────────────────────────────────────────
+
+chrome.tabs.onCreated.addListener((tab) => setTab(tab));
+chrome.tabs.onUpdated.addListener((_id, _change, tab) => setTab(tab));
+chrome.tabs.onRemoved.addListener((tabId, info) => removeTab(tabId, info.isWindowClosing));
+chrome.tabs.onAttached.addListener(async (tabId) => {
+  const tab = await chrome.tabs.get(tabId);
+  setTab(tab);
+});
+chrome.tabs.onDetached.addListener((tabId) => removeTab(tabId, false));
+
+// ─── Group listeners ──────────────────────────────────────────────────────────
+
+chrome.tabGroups.onCreated.addListener((g) => {
+  if (!groupCache.has(g.id)) {
+    groupCache.set(g.id, { title: g.title ?? "(no name)", color: g.color, tabs: new Map() });
+  }
+});
+
+chrome.tabGroups.onUpdated.addListener((g) => {
+  const cached = groupCache.get(g.id);
+  if (cached) {
+    cached.title = g.title ?? cached.title;
+    cached.color = g.color;
+  } else {
+    groupCache.set(g.id, { title: g.title ?? "(no name)", color: g.color, tabs: new Map() });
+  }
+});
+
+chrome.tabGroups.onRemoved.addListener((g) => markGroupClosed(g));

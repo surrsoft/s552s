@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { TabGroup } from "./types";
+import type { TabGroup, SavedTab } from "./types";
 
 // Maps Chrome's color names to CSS values
 const COLOR_MAP: Record<string, string> = {
@@ -18,30 +18,66 @@ export function useGroupColor(color: string): string {
   return COLOR_MAP[color] ?? "#5f6368";
 }
 
+interface StoredClosedGroup {
+  uid: string;
+  id: number;
+  title: string;
+  color: string;
+  tabs: SavedTab[];
+  closedAt: number;
+}
+
 export function useTabs() {
-  const [groups, setGroups] = useState<TabGroup[]>([]);
+  const [openGroups, setOpenGroups] = useState<TabGroup[]>([]);
+  const [closedGroups, setClosedGroups] = useState<TabGroup[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
-      const rawGroups = await chrome.tabGroups.query({});
-      const allTabs = await chrome.tabs.query({});
+      const [rawGroups, allTabs, storageData] = await Promise.all([
+        chrome.tabGroups.query({}),
+        chrome.tabs.query({}),
+        chrome.storage.local.get("closedGroups"),
+      ]);
 
-      const result: TabGroup[] = rawGroups.map((g) => ({
+      const live: TabGroup[] = rawGroups.map((g) => ({
+        uid: String(g.id),
         id: g.id,
         title: g.title ?? "(no name)",
         color: g.color,
         collapsed: g.collapsed,
         windowId: g.windowId,
         tabs: allTabs.filter((t) => t.groupId === g.id),
+        closed: false,
+        savedTabs: [],
       }));
 
-      setGroups(result);
+      const stored: StoredClosedGroup[] = storageData.closedGroups ?? [];
+      const closed: TabGroup[] = stored.map((g) => ({
+        uid: g.uid,
+        id: g.id,
+        title: g.title,
+        color: g.color as chrome.tabGroups.ColorEnum,
+        collapsed: false,
+        windowId: -1,
+        tabs: [],
+        closed: true,
+        savedTabs: g.tabs,
+        closedAt: g.closedAt,
+      }));
+
+      setOpenGroups(live);
+      setClosedGroups(closed);
       setLoading(false);
     }
 
     load();
   }, []);
 
-  return { groups, loading };
+  async function clearClosed() {
+    await chrome.storage.local.set({ closedGroups: [] });
+    setClosedGroups([]);
+  }
+
+  return { openGroups, closedGroups, loading, clearClosed };
 }

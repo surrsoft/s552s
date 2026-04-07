@@ -3,7 +3,11 @@
   "name": "Tab Group Search",
   "version": "1.0.0",
   "description": "Search across your Chrome tab groups instantly",
-  "permissions": ["tabs", "tabGroups"],
+  "permissions": ["tabs", "tabGroups", "storage"],
+  "background": {
+    "service_worker": "src/background.ts",
+    "type": "module"
+  },
   "action": {
     "default_popup": "src/popup/index.html",
     "default_width": 480,
