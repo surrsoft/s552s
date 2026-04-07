@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Group Search",
+  "version": "1.0.0",
+  "description": "Search across your Chrome tab groups instantly",
+  "permissions": ["tabs", "tabGroups"],
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_width": 480,
+    "default_height": 600
+  },
+  "icons": {
+    "16": "public/icons/icon16.png",
+    "48": "public/icons/icon48.png",
+    "128": "public/icons/icon128.png"
+  }
+}
