@@ -135,8 +135,12 @@ async function markGroupClosed(group: chrome.tabGroups.TabGroup) {
 
   const data = await chrome.storage.local.get("closedGroups");
   const existing: ClosedGroup[] = data.closedGroups ?? [];
+  // Remove previous entries for the same group (same title + color) — keep only the latest
+  const deduplicated = existing.filter(
+    (g) => !(g.title === entry.title && g.color === entry.color)
+  );
   await chrome.storage.local.set({
-    closedGroups: [entry, ...existing].slice(0, 200),
+    closedGroups: [entry, ...deduplicated].slice(0, 200),
   });
 
   groupCache.delete(group.id);
